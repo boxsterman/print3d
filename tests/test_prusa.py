@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import write_cube_stl
 from print3d.blender import BlenderError, find_blender
 from print3d.paths import prusa_profiles_dir
 from print3d.pipeline import run_job
@@ -13,6 +14,7 @@ from print3d.prusa import (
     build_project_command,
     build_slice_command,
     find_prusa,
+    load_bed_mm,
     load_presets,
 )
 
@@ -69,6 +71,25 @@ def test_presets_must_name_all_three(tmp_path: Path):
     path.write_text('{"printer": "Prusa CORE One 0.4 HF"}')
     with pytest.raises(PrusaError, match="print, filament"):
         load_presets(path)
+
+
+def test_bed_is_pinned_beside_the_presets(tmp_path: Path):
+    assert load_bed_mm(prusa_profiles_dir() / "presets.json") == (250.0, 220.0, 270.0)
+    path = tmp_path / "presets.json"
+    path.write_text('{"bed_mm": [250, 220]}')
+    with pytest.raises(PrusaError, match="bed_mm"):
+        load_bed_mm(path)
+
+
+def test_part_deeper_than_the_coreone_bed_fails(tmp_path: Path, monkeypatch):
+    from print3d.dfm import DfmError
+
+    monkeypatch.setenv("PRINT3D_SLICER", "prusa")
+    monkeypatch.setenv("PRINT3D_FITS", str(tmp_path / "fits.json"))
+    # Fits the X2D's 256 mm, not the CORE One's 220 mm depth.
+    stl = write_cube_stl(tmp_path / "cube.stl", 230.0)
+    with pytest.raises(DfmError, match="exceeds the bed"):
+        run_job("deep cube", mesh=stl, jobs_dir=tmp_path / "jobs", execute=False)
 
 
 def test_footer_stats_and_layers(tmp_path: Path):

@@ -19,7 +19,7 @@ from typing import Any
 from print3d import prusa
 from print3d.blender import BlenderError, run_model_script, scaffold_script
 from print3d.brief import PrintBrief, parse_brief
-from print3d.dfm import check_mesh, require_printable
+from print3d.dfm import X2D_BED_MM, check_mesh, require_printable
 from print3d.filaments import DEFAULT_COLOUR, NOZZLES, colour_hex, job_filaments
 from print3d.fits import fit_advice, load_fits
 from print3d.likeness import check_likeness, likeness_advice
@@ -180,7 +180,8 @@ def _run_job(
         return _run_parts(brief, job_dir, profiles, spec, fits, mesh_path, report, execute)
 
     # 3. Is it even a solid?
-    dfm = require_printable(mesh_path)
+    bed_mm = prusa.load_bed_mm(profiles / "presets.json") if backend == "prusa" else X2D_BED_MM
+    dfm = require_printable(mesh_path, bed_mm=bed_mm)
     report["dfm"] = dfm.as_dict()
     mesh_metrics = analyze_mesh(mesh_path)
     report["mesh_metrics"] = mesh_metrics

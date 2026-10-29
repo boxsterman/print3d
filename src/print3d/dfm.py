@@ -131,7 +131,7 @@ def check_mesh(path: Path, *, bed_mm: tuple[float, float, float] = X2D_BED_MM) -
     if stats.volume_mm3 < MIN_VOLUME_MM3:
         errors.append(f"Volume {stats.volume_mm3:.3f} mm^3 is too small.")
     if any(stats.size_mm[i] > bed_mm[i] + 0.01 for i in range(3)):
-        errors.append(f"Size {stats.size_mm} mm exceeds X2D bed {bed_mm} mm.")
+        errors.append(f"Size {stats.size_mm} mm exceeds the bed {bed_mm} mm.")
     if stats.triangles > MAX_TRIANGLES_FAIL:
         errors.append(f"{stats.triangles} triangles exceeds {MAX_TRIANGLES_FAIL}.")
     elif stats.triangles > MAX_TRIANGLES_WARN:
@@ -143,8 +143,8 @@ def check_mesh(path: Path, *, bed_mm: tuple[float, float, float] = X2D_BED_MM) -
     return DfmReport(ok=not errors, stats=stats, errors=tuple(errors), warnings=tuple(warnings))
 
 
-def require_printable(path: Path) -> DfmReport:
-    report = check_mesh(path)
+def require_printable(path: Path, *, bed_mm: tuple[float, float, float] = X2D_BED_MM) -> DfmReport:
+    report = check_mesh(path, bed_mm=bed_mm)
     if not report.ok:
         raise DfmError("; ".join(report.errors))
     return report

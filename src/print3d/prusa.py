@@ -52,6 +52,14 @@ def load_presets(path: Path) -> dict[str, str]:
     return {key: presets[key] for key in PRESET_KEYS}
 
 
+def load_bed_mm(path: Path) -> tuple[float, float, float]:
+    """The printer preset's bed width, depth and height, pinned beside its name."""
+    bed = json.loads(path.read_text(encoding="utf-8")).get("bed_mm")
+    if not (isinstance(bed, list) and len(bed) == 3):
+        raise PrusaError(f"{path} needs bed_mm: [width, depth, height] in mm.")
+    return (float(bed[0]), float(bed[1]), float(bed[2]))
+
+
 def _common_prefix(binary: Path, request: PrusaRequest) -> list[str]:
     return [
         str(binary),
