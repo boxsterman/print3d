@@ -168,6 +168,34 @@ fill in and run again.
 | `setup` | Register print3d with your agents |
 | `mcp` | Run the MCP server on stdio (agents launch this) |
 
+## PrusaSlicer (Prusa CORE One)
+
+Set `PRINT3D_SLICER=prusa` to slice with PrusaSlicer instead of Bambu Studio,
+for a **Prusa CORE One (0.4 mm HF nozzle)**:
+
+```bash
+PRINT3D_SLICER=prusa print3d make "a 40mm nameplate that says MARCO" --script examples/nameplate.py
+```
+
+For an agent, set it in the environment the MCP server runs in. PrusaSlicer is
+found in `/Applications/PrusaSlicer*.app` or on `PATH` as `prusa-slicer`;
+elsewhere, set `PRUSA_SLICER_BIN`.
+
+- **Presets:** PrusaSlicer's own system presets, by name, from
+  `src/print3d/profiles/coreone-hf0.4/presets.json`: `Prusa CORE One 0.4 HF`,
+  `0.20mm BALANCED @COREONE 0.4HF`, `Prusament PLA @COREONE HF0.4@COREONE 0.4`.
+  These are the PrusaSlicer 3.0 names; edit the file for another printer, print
+  or filament. Each job slices with its own config folder, `jobs/<slug>/prusa-datadir`,
+  so your PrusaSlicer settings are neither read nor changed.
+- **Output:** `jobs/<slug>/slice/<slug>.3mf`, a PrusaSlicer project, and
+  `<slug>.gcode`, the sliced job the checks read. Open the `.3mf` in PrusaSlicer,
+  slice, and print from there.
+- **Plate picture:** the PrusaSlicer command line embeds no thumbnail, so the
+  plate picture is a Blender render of the part.
+- **Not yet:** several parts or colours (`part()`) fail with an error, the
+  part's colour is not passed to PrusaSlicer, and `plan`, `status` and the
+  hand-off sheet's material cost still use the Bambu setup.
+
 ## Writing a model script
 
 Plain bpy that builds geometry. `examples/nameplate.py` is the reference.
@@ -383,7 +411,7 @@ Every problem comes with a `fix` telling the agent what to change in the script.
 git clone git@github.com:mfranzon/print3d.git && cd print3d
 uv venv && uv pip install -e '.[dev]'
 .venv/bin/print3d setup --agent hermes              # point Hermes at this checkout
-.venv/bin/python -m pytest -q                       # unit tests
+.venv/bin/python -m pytest -q                       # unit tests; slices with PrusaSlicer if installed
 PRINT3D_STUDIO_IT=1 .venv/bin/python -m pytest -q   # also runs Blender and Studio
 hermes plugins validate .                           # check the plugin package
 ```
