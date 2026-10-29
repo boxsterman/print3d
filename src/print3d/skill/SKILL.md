@@ -1,11 +1,11 @@
 ---
 name: print3d
-description: Model a part in Blender from an idea, a photo of an object, or the shop listing of something you would otherwise buy, slice it for the Bambu X2D, and iterate until it prints clean and matches the photo.
+description: Model a part in Blender from an idea, a photo of an object, or the shop listing of something you would otherwise buy, slice it with the configured slicer (Bambu Studio for the X2D, or PrusaSlicer for the Prusa CORE One), and iterate until it prints clean and matches the photo.
 argument-hint: "[what to make, a photo of the object, or a shop link]"
 disable-model-invocation: true
 ---
 
-# /print3d — idea to a printable X2D part
+# /print3d — idea to a printable part
 
 `print3d` below is the print3d command line. When you have the print3d MCP
 tools, use those of the same names instead: they return the plate preview and
@@ -17,11 +17,12 @@ idea / photo / text  →  model.py (Blender)  →  mesh  →  DFM + printability
         │                    ↑                         + likeness to the photo
     spec.json                └────────  advice: what to fix ───┘
                                               │
-                                        slice → .3mf → user prints from Studio
+                                        slice → .3mf → user prints from the slicer
 ```
 
 Nothing here reaches the printer. The last step is a sentence handing the user a
-`.3mf`. Printing is theirs to do in Studio, with the plate in front of them.
+`.3mf`. Printing is theirs to do in the slicer, with the plate in front of them.
+Which slicer and machine is set up is in [The machine](#the-machine).
 
 ## 1. Read the brief
 
@@ -66,7 +67,7 @@ Replace the scaffold's body with the real part. The contract:
 - Leave the geometry as mesh objects. The harness joins them, removes doubles,
   fills holes, recalculates normals, triangulates, centres the part, drops it on
   the bed and exports.
-- **Orientation is yours.** Studio's auto-orient is off, so what you model is
+- **Orientation is yours.** The slicer's auto-orient is off, so what you model is
   what prints.
 
 `examples/nameplate.py` is the worked reference. `references/modelling.md` has
@@ -79,7 +80,7 @@ asks for.
 print3d make "<prompt>"
 ```
 
-Models, DFM-checks, slices with the pinned X2D presets, and reports. The run is
+Models, DFM-checks, slices with the pinned presets of the configured machine, and reports. The run is
 **red** when `severity` is `error` — exit code 1, `status: needs_work`.
 
 While red: read `advice`, apply the `fix` each note carries to `model.py`, run
@@ -121,10 +122,11 @@ grams and time beside the listing's price. Then give the path:
 jobs/<slug>/slice/<slug>.3mf
 ```
 
-That is the project file. The `.gcode.3mf` beside it is a sliced job and
-Studio's Prepare tab rejects it as having no geometry. Tell the user to open the
-`.3mf`, check the preview, and print from Studio — and offer another iteration
-if the preview is not what they wanted.
+That is the project file. Beside it is the sliced job the checks read: a
+`.gcode.3mf` with Bambu Studio, which Studio's Prepare tab rejects as having no
+geometry, or a `.gcode` with PrusaSlicer. Tell the user to open the `.3mf` in
+the slicer the report's `next_step` names, check the preview, and print from
+there — and offer another iteration if the preview is not what they wanted.
 
 ## Done when
 
@@ -134,7 +136,17 @@ and the print sheet.
 
 ## The machine
 
-X2D, 0.4 mm nozzle, 256 × 256 × 260 mm bed, 0.20 mm layers, Bambu PLA Basic,
-textured PEI plate. **The pinned process has supports off** — that is why an
-overhang note is a real defect and not a setting to flip. Two nozzles: two
-colours print without a filament change.
+`PRINT3D_SLICER` picks it: `bambu` (the default) or `prusa`. The MCP server's
+instructions name the one configured, and a run's `next_step` names its slicer.
+Either way **the pinned process has supports off** — that is why an overhang
+note is a real defect and not a setting to flip.
+
+**Bambu Studio:** X2D, 0.4 mm nozzle, 256 × 256 × 260 mm bed, 0.20 mm layers,
+Bambu PLA Basic, textured PEI plate. Two nozzles: two colours print without a
+filament change.
+
+**PrusaSlicer:** Prusa CORE One, 0.4 mm HF nozzle, 250 × 220 × 270 mm bed,
+0.20 mm BALANCED, Prusament PLA. Single parts only: a script that calls
+`part()` stops with an error, so model one part in one colour. The colour is
+not passed to the slicer, and `plate_png` is a Blender render of the part, not
+the slicer's plate.

@@ -42,6 +42,9 @@ all the placement a part needs. Studio arranges the objects on each plate.
 
 ## Colours
 
+Several parts and colours need Bambu Studio: with `PRINT3D_SLICER=prusa` a
+script that calls `part()` stops with an error.
+
 The X2D has two nozzles: two colours print without a filament change. A third
 colour is swapped in on one of them, with a purge each time; the run says so.
 Colour never changes the material: every filament is the pinned Bambu PLA

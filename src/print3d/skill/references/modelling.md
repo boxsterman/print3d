@@ -1,4 +1,4 @@
-# Modelling in Blender for the X2D
+# Modelling in Blender for print3d
 
 Recipes and gotchas for writing `jobs/<slug>/model.py`. The contract itself is
 in `SKILL.md`; this is what to reach for once you are writing geometry.
