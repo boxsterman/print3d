@@ -40,8 +40,11 @@ LAYER_GROWTH_WARN = 2.0
 
 MOVE_RE = re.compile(r"^G[0-3]\b(.*)$")
 AXIS_RE = re.compile(r"([XYZEF])(-?\d*\.?\d+)")
-TIME_RE = re.compile(r"total estimated time:\s*(.+?)\s*$", re.IGNORECASE)
-WEIGHT_RE = re.compile(r"total filament weight \[g\]\s*[:=]\s*([0-9.]+)", re.IGNORECASE)
+# Bambu wording first, then PrusaSlicer's footer.
+TIME_RE = re.compile(
+    r"(?:total estimated time:|estimated printing time \(normal mode\) =)\s*(.+?)\s*$", re.IGNORECASE
+)
+WEIGHT_RE = re.compile(r"total filament (?:weight|used) \[g\]\s*[:=]\s*([0-9.]+)", re.IGNORECASE)
 LAYERS_RE = re.compile(r"total layer number:\s*(\d+)", re.IGNORECASE)
 
 
@@ -124,7 +127,10 @@ def analyze_mesh(path: Path, *, slope_deg: float = OVERHANG_SLOPE_DEG) -> dict[s
 def analyze_slice(project: Path, plate: int = 1) -> dict[str, Any]:
     """Per-layer material from the gcode. No feature comments needed."""
     gcode = read_plate_gcode(project, plate)
-    header, _, body = gcode.partition("CONFIG_BLOCK_END")
+    header, marker, body = gcode.partition("CONFIG_BLOCK_END")
+    if not marker:
+        # PrusaSlicer has no header block: stats are in the footer, moves throughout.
+        header, body = gcode, gcode
 
     estimated_time = None
     weight_g = None
@@ -199,8 +205,8 @@ def _minutes(estimate: str | None) -> float | None:
     if not estimate:
         return None
     total = 0.0
-    for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([hms])", estimate):
-        total += float(value) * {"h": 60.0, "m": 1.0, "s": 1 / 60.0}[unit]
+    for value, unit in re.findall(r"(\d+(?:\.\d+)?)\s*([dhms])", estimate):
+        total += float(value) * {"d": 1440.0, "h": 60.0, "m": 1.0, "s": 1 / 60.0}[unit]
     return round(total, 1) if total else None
 
 

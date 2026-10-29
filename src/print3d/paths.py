@@ -8,6 +8,8 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent
 JOBS_ENV = "PRINT3D_JOBS"
+SLICER_ENV = "PRINT3D_SLICER"
+SLICERS = ("bambu", "prusa")
 NAME_RE = re.compile(r"[a-z0-9_-]{1,64}")
 
 
@@ -15,8 +17,20 @@ def repo_root() -> Path:
     return PACKAGE.parents[1]
 
 
+def slicer() -> str:
+    """`$PRINT3D_SLICER`: bambu (default) or prusa."""
+    name = os.environ.get(SLICER_ENV, "").strip().lower() or "bambu"
+    if name not in SLICERS:
+        raise ValueError(f"{SLICER_ENV}={name!r}: use one of {', '.join(SLICERS)}")
+    return name
+
+
 def default_profiles_dir() -> Path:
     return PACKAGE / "profiles" / "x2d-0.4"
+
+
+def prusa_profiles_dir() -> Path:
+    return PACKAGE / "profiles" / "coreone-hf0.4"
 
 
 def coupon_script() -> Path:

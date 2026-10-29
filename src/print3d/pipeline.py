@@ -16,13 +16,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+from print3d import prusa
 from print3d.blender import BlenderError, run_model_script, scaffold_script
 from print3d.brief import PrintBrief, parse_brief
 from print3d.dfm import check_mesh, require_printable
 from print3d.filaments import DEFAULT_COLOUR, NOZZLES, colour_hex, job_filaments
 from print3d.fits import fit_advice, load_fits
 from print3d.likeness import check_likeness, likeness_advice
-from print3d.paths import default_jobs_dir, default_profiles_dir
+from print3d.paths import default_jobs_dir, default_profiles_dir, prusa_profiles_dir, slicer
 from print3d.printability import (
     Advice,
     advise,
@@ -35,11 +36,14 @@ from print3d.printability import (
     worst_severity,
 )
 from print3d.project import extract_plate_png, inspect_project
+from print3d.render import render_parts
 from print3d.spec import load_spec, model_dims
 from print3d.studio import SliceRequest, assemble_list, run_slice, slice_plan
 from print3d.viewer import build_viewer
 
 MODEL_SCRIPT = "model.py"
+PROFILE_FILES = {"bambu": ("machine.json", "process.json", "filament.json"), "prusa": ("presets.json",)}
+SLICER_APP = {"bambu": "Bambu Studio", "prusa": "PrusaSlicer"}
 HISTORY = "history.jsonl"
 
 
@@ -113,7 +117,7 @@ def run_job(
     try:
         result = _run_job(
             brief, job_dir, report, script=script, mesh=mesh, execute=execute,
-            profiles=profiles_dir or default_profiles_dir(),
+            profiles=profiles_dir or (prusa_profiles_dir() if slicer() == "prusa" else default_profiles_dir()),
         )
     except Exception as exc:
         report.update(status="failed", error=str(exc))
@@ -133,7 +137,8 @@ def _run_job(
     execute: bool,
     profiles: Path,
 ) -> dict[str, Any]:
-    for required in ("machine.json", "process.json", "filament.json"):
+    backend = slicer()
+    for required in PROFILE_FILES[backend]:
         if not (profiles / required).is_file():
             raise PipelineError(
                 f"Pinned profile missing: {profiles / required}. Run: python -m print3d flatten"
@@ -167,6 +172,11 @@ def _run_job(
         report["model"]["source"] = "blender"
 
     if report["model"].get("parts"):
+        if backend == "prusa":
+            raise PipelineError(
+                "The PrusaSlicer backend slices single parts only; this script declares parts. "
+                "Unset PRINT3D_SLICER to slice it with Bambu Studio."
+            )
         return _run_parts(brief, job_dir, profiles, spec, fits, mesh_path, report, execute)
 
     # 3. Is it even a solid?
@@ -179,24 +189,18 @@ def _run_job(
         report["likeness"] = likeness
     likeness_notes = likeness_advice(likeness)
 
-    request = SliceRequest(
-        input_mesh=mesh_path,
-        output_3mf=job_dir / "slice" / f"{brief.slug}.gcode.3mf",
-        output_project_3mf=job_dir / "slice" / f"{brief.slug}.3mf",
-        machine=profiles / "machine.json",
-        process=profiles / "process.json",
-        filaments=(
-            tuple(job_filaments(profiles / "filament.json", [brief.color_name], job_dir / "filaments"))
-            if brief.color_name
-            else (profiles / "filament.json",)
-        ),
-        datadir=job_dir / "studio-datadir",
-        output_dir=job_dir / "slice",
-        # Auto-orient would silently rotate the part and invalidate every
-        # overhang note below. Orientation is the model script's business.
-        orient=False,
-    )
-    report["slice_plan"] = slice_plan(request)
+    if backend == "prusa":
+        request = prusa.PrusaRequest(
+            input_mesh=mesh_path,
+            output_gcode=job_dir / "slice" / f"{brief.slug}.gcode",
+            output_project_3mf=job_dir / "slice" / f"{brief.slug}.3mf",
+            presets=prusa.load_presets(profiles / "presets.json"),
+            datadir=job_dir / "prusa-datadir",
+        )
+        report["slice_plan"] = prusa.slice_plan(request)
+    else:
+        request = _bambu_request(brief, job_dir, profiles, mesh_path)
+        report["slice_plan"] = slice_plan(request)
 
     if not execute:
         report["status"] = "dry_run"
@@ -206,10 +210,12 @@ def _run_job(
         return report
 
     # 4. Slice, then read back what the slicer actually did.
-    slice_result = run_slice(request)
+    slice_result = prusa.run_slice(request) if backend == "prusa" else run_slice(request)
     project = Path(slice_result["output_3mf"])
     inspection = inspect_project(project)
     png = extract_plate_png(project, job_dir / "slice" / f"{brief.slug}_plate.png")
+    if png is None:
+        png = _render_plate(mesh_path, brief, job_dir / "slice" / f"{brief.slug}_plate.png")
     slice_metrics = analyze_slice(project)
     notes = advise(mesh_metrics, slice_metrics, extra=likeness_notes)
     severity = worst_severity(notes)
@@ -234,7 +240,7 @@ def _run_job(
             "next_step": (
                 "Fix the errors in the model script and run again."
                 if severity == "error"
-                else "Open the .3mf in Bambu Studio, check the preview, and print it from there."
+                else f"Open the .3mf in {SLICER_APP[backend]}, check the preview, and print it from there."
             ),
         }
     )
@@ -255,6 +261,35 @@ def _run_job(
         },
     )
     return report
+
+
+def _render_plate(mesh_path: Path, brief: PrintBrief, out_png: Path) -> Path | None:
+    """The headless PrusaSlicer CLI embeds no thumbnail; render the part instead."""
+    item = {"stl": str(mesh_path), "hex": colour_hex(brief.color_name or DEFAULT_COLOUR), "group": brief.slug}
+    try:
+        return render_parts([item], out_png)
+    except BlenderError:
+        return None
+
+
+def _bambu_request(brief: PrintBrief, job_dir: Path, profiles: Path, mesh_path: Path) -> SliceRequest:
+    return SliceRequest(
+        input_mesh=mesh_path,
+        output_3mf=job_dir / "slice" / f"{brief.slug}.gcode.3mf",
+        output_project_3mf=job_dir / "slice" / f"{brief.slug}.3mf",
+        machine=profiles / "machine.json",
+        process=profiles / "process.json",
+        filaments=(
+            tuple(job_filaments(profiles / "filament.json", [brief.color_name], job_dir / "filaments"))
+            if brief.color_name
+            else (profiles / "filament.json",)
+        ),
+        datadir=job_dir / "studio-datadir",
+        output_dir=job_dir / "slice",
+        # Auto-orient would silently rotate the part and invalidate every
+        # overhang note below. Orientation is the model script's business.
+        orient=False,
+    )
 
 
 def _run_parts(

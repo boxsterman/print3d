@@ -1,4 +1,4 @@
-"""Inspect a sliced Bambu .gcode.3mf project."""
+"""Inspect a sliced Bambu .gcode.3mf project, or a PrusaSlicer .gcode."""
 
 from __future__ import annotations
 
@@ -11,8 +11,13 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 PLATE_GCODE_RE = re.compile(r"^Metadata/plate_(\d+)\.gcode$")
-TIME_RE = re.compile(r"total estimated time:\s*(.+)$", re.IGNORECASE)
-FILAMENT_G_RE = re.compile(r"total filament weight \[g\]\s*[:=]\s*([0-9.]+)", re.IGNORECASE)
+# Bambu wording first, then PrusaSlicer's footer.
+TIME_RE = re.compile(
+    r"(?:total estimated time:|estimated printing time \(normal mode\) =)\s*(.+)$", re.IGNORECASE
+)
+FILAMENT_G_RE = re.compile(
+    r"total filament (?:weight|used) \[g\]\s*[:=]\s*([0-9.]+)", re.IGNORECASE
+)
 FILAMENT_M_RE = re.compile(
     r"total filament length \[mm\]\s*[:=]\s*([0-9., ]+)|filament used \[mm\]\s*[:=]\s*([0-9., ]+)",
     re.IGNORECASE,
@@ -57,8 +62,8 @@ def _header_block(gcode: str) -> str:
     return "\n".join(lines)
 
 
-def _parse_gcode_stats(gcode: str) -> dict[str, Any]:
-    header = _header_block(gcode)
+def _parse_gcode_stats(gcode: str, header: str | None = None) -> dict[str, Any]:
+    header = _header_block(gcode) if header is None else header
     time = None
     filament_g = None
     filament_mm = None
@@ -117,10 +122,43 @@ def _parse_slice_info(slice_info: str | None) -> dict[str, Any]:
     return {"metadata": meta, "filaments": filaments, "plates": plates}
 
 
+def _is_gcode(path: Path) -> bool:
+    return path.suffix.lower() == ".gcode"
+
+
+def _footer(gcode: str) -> str:
+    """PrusaSlicer writes its stats as comments after the last move."""
+    return "\n".join(line for line in gcode.splitlines() if line.startswith("; "))
+
+
+def _inspect_gcode(path: Path) -> dict[str, Any]:
+    gcode = path.read_text(encoding="utf-8", errors="replace")
+    stats = _parse_gcode_stats(gcode, _footer(gcode))
+    plate = PlateInfo(
+        index=1,
+        gcode_path=path.name,
+        gcode_bytes=path.stat().st_size,
+        md5_ok=None,
+        png_path=None,
+        **stats,
+    )
+    return {
+        "path": str(path),
+        "size_bytes": path.stat().st_size,
+        "entries": [path.name],
+        "plates": [asdict(plate)],
+        "slice_info": None,
+        "slice_info_parsed": {},
+        "sliced": True,
+    }
+
+
 def inspect_project(path: Path) -> dict[str, Any]:
     resolved = path.expanduser().resolve()
     if not resolved.is_file():
         raise ProjectError(f"Project does not exist: {resolved}")
+    if _is_gcode(resolved):
+        return _inspect_gcode(resolved)
     if resolved.suffix.lower() != ".3mf":
         raise ProjectError(f"Not a .3mf file: {resolved}")
     plates: list[PlateInfo] = []
@@ -177,6 +215,8 @@ def inspect_project(path: Path) -> dict[str, Any]:
 
 
 def extract_plate_png(path: Path, dest: Path, plate: int = 1) -> Path | None:
+    if _is_gcode(path):
+        return None
     member = f"Metadata/plate_{plate}.png"
     with zipfile.ZipFile(path) as archive:
         if member not in archive.namelist():
@@ -187,7 +227,9 @@ def extract_plate_png(path: Path, dest: Path, plate: int = 1) -> Path | None:
 
 
 def read_plate_gcode(path: Path, plate: int = 1) -> str:
-    """The raw gcode for one plate of a sliced project."""
+    """The raw gcode for one plate of a sliced project, or a plain .gcode file."""
+    if _is_gcode(path):
+        return path.expanduser().resolve().read_text(encoding="utf-8", errors="replace")
     member = f"Metadata/plate_{plate}.gcode"
     with zipfile.ZipFile(path.expanduser().resolve()) as archive:
         if member not in archive.namelist():
